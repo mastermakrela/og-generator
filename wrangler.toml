@@ -1,9 +1,11 @@
 name = "og-generator"
 main = "src/index.ts"
-compatibility_date = "2024-03-20"
+compatibility_date = "2024-05-20"
 compatibility_flags = ["nodejs_compat"]
 
-account_id = "9afa0c9be58a0bb6d2f7d43f6ec2fedb"
+rules = [
+  { type = "Data", globs = ["**/*.ttf"], fallthrough = true }
+]
 
 [placement]
 mode = "smart"
@@ -13,5 +15,4 @@ mode = "smart"
 [[r2_buckets]]
 binding = "FONTS"
 bucket_name = "fonts"
-
 

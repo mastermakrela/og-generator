@@ -1,29 +1,14 @@
-export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	FONTS: R2Bucket;
-	//
-	// Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-	// MY_SERVICE: Fetcher;
-	//
-	// Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
-	// MY_QUEUE: Queue;
-}
+import { Resvg, initWasm } from '@resvg/resvg-wasm';
+import { WorkerEntrypoint } from 'cloudflare:workers';
+import { html as to_react_node } from 'satori-html';
+import satori, { Font, init } from 'satori/wasm';
+import initYoga from 'yoga-wasm-web';
 
-type ImageRequest = {
-	height: number;
-	width: number;
-	html: string;
-};
+import backup_noto from './noto-sans-v27-latin-regular.ttf';
+import resvg_wasm from '@resvg/resvg-wasm/index_bg.wasm';
+import yoga_wasm from 'yoga-wasm-web/dist/yoga.wasm';
 
-import { Buffer } from 'node:buffer';
-import { html as toReactNode } from 'satori-html';
-import { ImageResponse } from '@cloudflare/pages-plugin-vercel-og/api';
+// MARK: - Fonts
 
 const fonts = [
 	{
@@ -31,15 +16,15 @@ const fonts = [
 		files: [
 			{ name: 'Noto Serif', data: 'Noto_Serif/static/NotoSerif-Regular.ttf', style: 'normal', weight: 400 },
 			{ name: 'Noto Serif', data: 'Noto_Serif/static/NotoSerif-Bold.ttf', style: 'normal', weight: 700 },
-		],
+		] as FontDef[],
 	},
 	{
 		name: 'Comfortaa',
-		files: [{ name: 'Comfortaa', data: 'Comfortaa/static/Comfortaa-Regular.ttf', style: 'normal', weight: 400 }],
+		files: [{ name: 'Comfortaa', data: 'Comfortaa/static/Comfortaa-Regular.ttf', style: 'normal', weight: 400 }] as FontDef[],
 	},
 ];
 
-async function prepare_fonts(env: Env, html: string) {
+async function prepare_fonts(env: Env, html: string): Promise<Font[]> {
 	const _fonts = fonts
 		.filter((font) => html.includes(font.name))
 		.flatMap((font) => font.files)
@@ -51,45 +36,114 @@ async function prepare_fonts(env: Env, html: string) {
 				return null;
 			}
 
-			return {
-				...file,
-				data: Buffer.from(data),
-			};
+			return { ...file, data: data };
 		});
 
-	const ret = await Promise.all(_fonts).then((fonts) => fonts.filter((font) => font !== null));
+	const ret = await Promise.all(_fonts).then((fonts) => fonts.filter(Boolean));
 
-	if (ret.length === 0) return undefined;
+	if (ret.length === 0) {
+		console.warn('No fonts found in the html, using backup font');
+		return [
+			{
+				name: 'sans serif',
+				data: await backup_noto,
+				weight: 700,
+				style: 'normal',
+			},
+		];
+	}
 
 	return ret;
 }
 
-export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+// MARK: - Default
+
+export default class extends WorkerEntrypoint<Env> {
+	// async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+	async fetch(request: Request) {
 		if (request.method !== 'POST') {
 			return new Response('Method not allowed', { status: 405 });
 		}
 
-		const { height = 600, width = 1200, html } = (await request.json()) as ImageRequest;
-		console.log('🚀 ~ fetch ~ html:', html);
+		const img_req = (await request.json()) as ImageRequest;
 
-		if (!html) {
+		if (!img_req.html) {
 			return new Response('Missing html', { status: 400 });
 		}
 
-		const element = toReactNode(html);
+		const image = await new ImageGenerator(this.ctx, this.env).get_png(img_req);
 
-		try {
-			const image = new ImageResponse(element, {
-				width,
-				height,
-				fonts: await prepare_fonts(env, html),
-			});
+		return new Response(image, {
+			headers: {
+				'Content-Type': 'image/png',
+				'Content-Length': image.length.toString(),
+			},
+		});
+	}
 
-			return image;
-		} catch (error) {
-			console.log('🚀 ~ fetch ~ error:', error);
-			return new Response(`${error}`, { status: 500 });
+	async get_png({ html, width = 1200, height = 600 }: ImageRequest) {
+		if (!html) {
+			throw new Error('Missing html');
 		}
-	},
-};
+
+		// await initYoga(yoga_wasm).then(init);
+		// await initWasm(resvg_wasm);
+
+		const react = to_react_node(html);
+
+		const svg = await satori(react, {
+			height,
+			width,
+			fonts: await prepare_fonts(this.env, html),
+		});
+
+		const resvg = new Resvg(svg, {
+			fitTo: {
+				mode: 'width',
+				value: width,
+			},
+		});
+
+		const image = resvg.render();
+
+		return image.asPng();
+	}
+}
+
+// MARK: - ImageGenerator
+
+try {
+	initYoga(yoga_wasm).then(init);
+	initWasm(resvg_wasm);
+} catch (error) {
+	console.log('🚀 ~ error:', error);
+}
+export class ImageGenerator extends WorkerEntrypoint<Env> {
+	async get_png({ html, width = 1200, height = 600 }: ImageRequest) {
+		if (!html) {
+			throw new Error('Missing html');
+		}
+
+		// await initYoga(yoga_wasm).then(init);
+		// await initWasm(resvg_wasm);
+
+		const react = to_react_node(html);
+
+		const svg = await satori(react, {
+			height,
+			width,
+			fonts: await prepare_fonts(this.env, html),
+		});
+
+		const resvg = new Resvg(svg, {
+			fitTo: {
+				mode: 'width',
+				value: width,
+			},
+		});
+
+		const image = resvg.render();
+
+		return image.asPng();
+	}
+}
