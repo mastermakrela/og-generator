@@ -1,25 +1,37 @@
-// test/index.spec.ts
-import { env, createExecutionContext, waitOnExecutionContext, SELF } from "cloudflare:test";
-import { describe, it, expect } from "vitest";
-import worker from "../src/index";
+import { exports } from 'cloudflare:workers';
+import { describe, expect, it } from 'vitest';
 
-// For now, you'll need to do something like this to get a correctly-typed
-// `Request` to pass to `worker.fetch()`.
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
+const html = '<div style="display: flex; font-size: 40px;">Hello Baltia</div>';
 
-describe("Hello World worker", () => {
-  it("responds with Hello World! (unit style)", async () => {
-    const request = new IncomingRequest("http://example.com");
-    // Create an empty context to pass to `worker.fetch()`.
-    const ctx = createExecutionContext();
-    const response = await worker.fetch(request, env, ctx);
-    // Wait for all `Promise`s passed to `ctx.waitUntil()` to settle before running test assertions
-    await waitOnExecutionContext(ctx);
-    expect(await response.text()).toMatchInlineSnapshot(`"Hello World!"`);
-  });
+describe('fetch', () => {
+	it('renders a PNG', async () => {
+		const response = await exports.default.fetch('https://og.test/', {
+			method: 'POST',
+			body: JSON.stringify({ html, width: 400, height: 200 }),
+		});
 
-  it("responds with Hello World! (integration style)", async () => {
-   const response = await SELF.fetch("https://example.com");
-   expect(await response.text()).toMatchInlineSnapshot(`"Hello World!"`);
- });
+		expect(response.status).toBe(200);
+		expect(response.headers.get('Content-Type')).toBe('image/png');
+		expect([...new Uint8Array(await response.arrayBuffer()).slice(0, 4)]).toEqual(PNG_MAGIC);
+	});
+
+	it('rejects non-POST requests', async () => {
+		const response = await exports.default.fetch('https://og.test/');
+		expect(response.status).toBe(405);
+	});
+
+	it('rejects a request without html', async () => {
+		const response = await exports.default.fetch('https://og.test/', { method: 'POST', body: '{}' });
+		expect(response.status).toBe(400);
+	});
+});
+
+describe('ImageGenerator', () => {
+	it('renders a PNG over RPC', async () => {
+		const image = await exports.ImageGenerator.get_png({ html, width: 400, height: 200 });
+
+		expect(image).toBeInstanceOf(Uint8Array);
+		expect([...image.slice(0, 4)]).toEqual(PNG_MAGIC);
+	});
 });

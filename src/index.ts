@@ -1,12 +1,11 @@
-import { Resvg, initWasm } from '@resvg/resvg-wasm';
+// @cf-wasm/* load satori's and resvg's WASM on Workers. They hold satori at 0.32.0, because
+// 0.33+ bundles HarfBuzz WASM that can't load there (fineshopdesign/cf-wasm#100).
+import { Resvg } from '@cf-wasm/resvg/workerd';
+import satori, { type Font } from '@cf-wasm/satori/workerd';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { html as to_react_node } from 'satori-html';
-import satori, { Font, init } from 'satori/wasm';
-import initYoga from 'yoga-wasm-web';
 
-import backup_noto from './noto-sans-v27-latin-regular.ttf';
-import resvg_wasm from '@resvg/resvg-wasm/index_bg.wasm';
-import yoga_wasm from 'yoga-wasm-web/dist/yoga.wasm';
+import backup_noto from './noto-sans-v27-latin-regular.ttf.bin';
 
 // MARK: - Fonts
 
@@ -24,12 +23,32 @@ const fonts = [
 	},
 ];
 
+// Keyed by R2 path. Holds the in-flight promise so concurrent requests share one fetch,
+// and hands out the same buffer every time, which also hits satori's parsed-font cache.
+const font_cache = new Map<string, Promise<ArrayBuffer | undefined>>();
+
+function load_font(env: Env, path: string) {
+	let font = font_cache.get(path);
+
+	if (!font) {
+		font = env.FONTS.get(path).then((res) => res?.arrayBuffer());
+		font_cache.set(path, font);
+		// Misses and errors aren't cached, so a font uploaded later gets picked up.
+		font.then(
+			(data) => data ?? font_cache.delete(path),
+			() => font_cache.delete(path),
+		);
+	}
+
+	return font;
+}
+
 async function prepare_fonts(env: Env, html: string): Promise<Font[]> {
 	const _fonts = fonts
 		.filter((font) => html.includes(font.name))
 		.flatMap((font) => font.files)
 		.map(async (file) => {
-			const data = await env.FONTS.get(file.data).then((res) => res?.arrayBuffer());
+			const data = await load_font(env, file.data);
 
 			if (!data) {
 				console.warn(`Font file ${file.data} not found`);
@@ -46,7 +65,7 @@ async function prepare_fonts(env: Env, html: string): Promise<Font[]> {
 		return [
 			{
 				name: 'sans serif',
-				data: await backup_noto,
+				data: backup_noto,
 				weight: 700,
 				style: 'normal',
 			},
@@ -56,22 +75,50 @@ async function prepare_fonts(env: Env, html: string): Promise<Font[]> {
 	return ret;
 }
 
+// MARK: - Rendering
+
+async function render_png(env: Env, { html, width = 1200, height = 600 }: ImageRequest) {
+	if (!html) {
+		throw new Error('Missing html');
+	}
+
+	const svg = await satori(to_react_node(html), { height, width, fonts: await prepare_fonts(env, html) });
+
+	const resvg = await Resvg.async(svg, {
+		fitTo: {
+			mode: 'width',
+			value: width,
+		},
+	});
+
+	// Free the WASM-side SVG tree and pixmap right away instead of waiting for GC; `asPng()` returns a JS-owned copy.
+	try {
+		const image = resvg.render();
+		try {
+			return image.asPng();
+		} finally {
+			image.free();
+		}
+	} finally {
+		resvg.free();
+	}
+}
+
 // MARK: - Default
 
 export default class extends WorkerEntrypoint<Env> {
-	// async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 	async fetch(request: Request) {
 		if (request.method !== 'POST') {
 			return new Response('Method not allowed', { status: 405 });
 		}
 
-		const img_req = (await request.json()) as ImageRequest;
+		const img_req = await request.json<ImageRequest>();
 
 		if (!img_req.html) {
 			return new Response('Missing html', { status: 400 });
 		}
 
-		const image = await new ImageGenerator(this.ctx, this.env).get_png(img_req);
+		const image = await render_png(this.env, img_req);
 
 		return new Response(image, {
 			headers: {
@@ -80,70 +127,12 @@ export default class extends WorkerEntrypoint<Env> {
 			},
 		});
 	}
-
-	async get_png({ html, width = 1200, height = 600 }: ImageRequest) {
-		if (!html) {
-			throw new Error('Missing html');
-		}
-
-		// await initYoga(yoga_wasm).then(init);
-		// await initWasm(resvg_wasm);
-
-		const react = to_react_node(html);
-
-		const svg = await satori(react, {
-			height,
-			width,
-			fonts: await prepare_fonts(this.env, html),
-		});
-
-		const resvg = new Resvg(svg, {
-			fitTo: {
-				mode: 'width',
-				value: width,
-			},
-		});
-
-		const image = resvg.render();
-
-		return image.asPng();
-	}
 }
 
 // MARK: - ImageGenerator
 
-try {
-	initYoga(yoga_wasm).then(init);
-	initWasm(resvg_wasm);
-} catch (error) {
-	console.log('🚀 ~ error:', error);
-}
 export class ImageGenerator extends WorkerEntrypoint<Env> {
-	async get_png({ html, width = 1200, height = 600 }: ImageRequest) {
-		if (!html) {
-			throw new Error('Missing html');
-		}
-
-		// await initYoga(yoga_wasm).then(init);
-		// await initWasm(resvg_wasm);
-
-		const react = to_react_node(html);
-
-		const svg = await satori(react, {
-			height,
-			width,
-			fonts: await prepare_fonts(this.env, html),
-		});
-
-		const resvg = new Resvg(svg, {
-			fitTo: {
-				mode: 'width',
-				value: width,
-			},
-		});
-
-		const image = resvg.render();
-
-		return image.asPng();
+	async get_png(req: ImageRequest) {
+		return render_png(this.env, req);
 	}
 }
