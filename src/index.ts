@@ -18,8 +18,13 @@ const fonts = [
 		] as FontDef[],
 	},
 	{
-		name: 'Comfortaa',
-		files: [{ name: 'Comfortaa', data: 'Comfortaa/static/Comfortaa-Regular.ttf', style: 'normal', weight: 400 }] as FontDef[],
+		name: 'Nunito',
+		files: [
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-Regular.ttf', style: 'normal', weight: 400 },
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-SemiBold.ttf', style: 'normal', weight: 600 },
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-Bold.ttf', style: 'normal', weight: 700 },
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-ExtraBold.ttf', style: 'normal', weight: 800 },
+		] as FontDef[],
 	},
 ];
 
@@ -84,12 +89,7 @@ async function render_png(env: Env, { html, width = 1200, height = 600 }: ImageR
 
 	const svg = await satori(to_react_node(html), { height, width, fonts: await prepare_fonts(env, html) });
 
-	const resvg = await Resvg.async(svg, {
-		fitTo: {
-			mode: 'width',
-			value: width,
-		},
-	});
+	const resvg = await Resvg.async(svg);
 
 	// Free the WASM-side SVG tree and pixmap right away instead of waiting for GC; `asPng()` returns a JS-owned copy.
 	try {
