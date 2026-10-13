@@ -1,5 +1,7 @@
-import { exports } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { env, exports } from 'cloudflare:workers';
+import { describe, expect, it, vi } from 'vitest';
+
+import font from '../src/noto-sans-v27-latin-regular.ttf.bin';
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
 const html = '<div style="display: flex; font-size: 40px;">Hello Baltia</div>';
@@ -33,5 +35,22 @@ describe('ImageGenerator', () => {
 
 		expect(image).toBeInstanceOf(Uint8Array);
 		expect([...image.slice(0, 4)]).toEqual(PNG_MAGIC);
+	});
+});
+
+describe('fonts', () => {
+	it('loads a font named in the html from R2, and picks up a file uploaded after a miss', async () => {
+		const warn = vi.spyOn(console, 'warn');
+		const req = { html: `<div style="display: flex; font-family: 'Noto Serif';">Hello Baltia</div>`, width: 400, height: 200 };
+
+		await exports.ImageGenerator.get_png(req);
+		expect(warn).toHaveBeenCalledWith('No fonts found in the html, using backup font');
+
+		warn.mockClear();
+		await env.FONTS.put('Noto_Serif/static/NotoSerif-Regular.ttf', font);
+		await exports.ImageGenerator.get_png(req);
+		expect(warn).not.toHaveBeenCalledWith('No fonts found in the html, using backup font');
+
+		warn.mockRestore();
 	});
 });
