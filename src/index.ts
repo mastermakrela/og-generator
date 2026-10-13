@@ -89,12 +89,7 @@ async function render_png(env: Env, { html, width = 1200, height = 600 }: ImageR
 
 	const svg = await satori(to_react_node(html), { height, width, fonts: await prepare_fonts(env, html) });
 
-	const resvg = await Resvg.async(svg, {
-		fitTo: {
-			mode: 'width',
-			value: width,
-		},
-	});
+	const resvg = await Resvg.async(svg);
 
 	// Free the WASM-side SVG tree and pixmap right away instead of waiting for GC; `asPng()` returns a JS-owned copy.
 	try {

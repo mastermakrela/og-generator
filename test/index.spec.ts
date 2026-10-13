@@ -15,7 +15,10 @@ describe('fetch', () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('Content-Type')).toBe('image/png');
-		expect([...new Uint8Array(await response.arrayBuffer()).slice(0, 4)]).toEqual(PNG_MAGIC);
+		const png = new DataView(await response.arrayBuffer());
+		expect([0, 1, 2, 3].map((i) => png.getUint8(i))).toEqual(PNG_MAGIC);
+		// IHDR width and height: the image has the requested size.
+		expect([png.getUint32(16), png.getUint32(20)]).toEqual([400, 200]);
 	});
 
 	it('rejects non-POST requests', async () => {
