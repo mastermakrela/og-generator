@@ -21,6 +21,15 @@ const fonts = [
 		name: 'Comfortaa',
 		files: [{ name: 'Comfortaa', data: 'Comfortaa/static/Comfortaa-Regular.ttf', style: 'normal', weight: 400 }] as FontDef[],
 	},
+	{
+		name: 'Nunito',
+		files: [
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-Regular.ttf', style: 'normal', weight: 400 },
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-SemiBold.ttf', style: 'normal', weight: 600 },
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-Bold.ttf', style: 'normal', weight: 700 },
+			{ name: 'Nunito', data: 'Nunito/static/Nunito-ExtraBold.ttf', style: 'normal', weight: 800 },
+		] as FontDef[],
+	},
 ];
 
 // Keyed by R2 path. Holds the in-flight promise so concurrent requests share one fetch,
