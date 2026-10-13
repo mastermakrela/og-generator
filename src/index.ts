@@ -18,10 +18,6 @@ const fonts = [
 		] as FontDef[],
 	},
 	{
-		name: 'Comfortaa',
-		files: [{ name: 'Comfortaa', data: 'Comfortaa/static/Comfortaa-Regular.ttf', style: 'normal', weight: 400 }] as FontDef[],
-	},
-	{
 		name: 'Nunito',
 		files: [
 			{ name: 'Nunito', data: 'Nunito/static/Nunito-Regular.ttf', style: 'normal', weight: 400 },
